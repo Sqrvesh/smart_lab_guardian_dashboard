@@ -15,9 +15,11 @@ import pandas as pd
 try:
     from smart_lab_guardian_dashboard.communication.message_models import IncidentMessage
     from smart_lab_guardian_dashboard.core.gas_response import compute_gri, gri_label
+    from smart_lab_guardian_dashboard.core.evaluation_labels import format_evaluation_label
 except ImportError:
     from communication.message_models import IncidentMessage
     from core.gas_response import compute_gri, gri_label
+    from core.evaluation_labels import format_evaluation_label
 
 
 @dataclass
@@ -48,7 +50,7 @@ class IncidentEvent:
         return {
             "Event ID": self.event_id,
             "Timestamp": self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "Incident Class": self.incident_class,
+            "Incident Class": format_evaluation_label(self.incident_class),
             "Risk Score": f"{self.risk_score:.1f}",
             "Persist Risk": f"{self.persist_risk:.1f}" if self.persist_risk is not None else "-",
             "Severity": self.severity,
@@ -147,7 +149,12 @@ class EventManager:
             result = [e for e in result if e.severity.upper() == severity.upper()]
 
         if incident_class and incident_class.upper() != "ALL":
-            result = [e for e in result if e.incident_class.upper() == incident_class.upper()]
+            target = incident_class.upper()
+            result = [
+                e for e in result
+                if e.incident_class.upper() == target
+                or format_evaluation_label(e.incident_class).upper() == target
+            ]
 
         if source and source.upper() != "ALL":
             result = [e for e in result if e.source.upper() == source.upper()]
@@ -164,6 +171,7 @@ class EventManager:
                 e for e in result
                 if q in e.explanation.lower()
                 or q in e.incident_class.lower()
+                or q in format_evaluation_label(e.incident_class).lower()
                 or q in e.severity.lower()
                 or q in e.event_id.lower()
             ]

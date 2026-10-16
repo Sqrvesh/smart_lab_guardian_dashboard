@@ -1,10 +1,9 @@
 """
 Real-time Plotly charts for Smart Lab Guardian:
-- Temperature and Humidity dual-axis/stacked charts with warning threshold reference lines.
-- Risk Score & Severity timeline with incident markers.
-- Motion Activity (PIR digital state & rolling count).
-- Combustible Gas readings (when registered and active).
-- Time window filtering (1, 5, 15, 60 minutes, All) and clear history controls.
+- Risk Score & Gas Response timeline (instantaneous vs persistent risk, GRI response).
+- Temperature and Humidity dual-axis environmental profiles.
+- Gas Response Index (0–100) trend with Low/Elevated/High reference thresholds.
+- Time window filtering (1, 5, 15, 60 minutes, All) and buffer management.
 """
 
 import streamlit as st
@@ -13,8 +12,14 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
-from smart_lab_guardian_dashboard.core.state_manager import StateManager
-from smart_lab_guardian_dashboard.core.sensor_registry import SensorRegistry
+try:
+    from smart_lab_guardian_dashboard.core.state_manager import StateManager
+    from smart_lab_guardian_dashboard.core.sensor_registry import SensorRegistry
+    from smart_lab_guardian_dashboard.core.evaluation_labels import format_evaluation_label
+except ImportError:
+    from core.state_manager import StateManager
+    from core.sensor_registry import SensorRegistry
+    from core.evaluation_labels import format_evaluation_label
 
 
 PLOTLY_LAYOUT_DEFAULTS = dict(
@@ -63,7 +68,7 @@ def render_realtime_charts(
             key="chart_window_choice",
         )
     with c_clear:
-        st.write("")  # vertical spacing
+        st.write("")
         if st.button("🧹 Clear Chart Buffers", help="Clears buffered chart history"):
             state_manager.clear_all_history()
             st.rerun()
@@ -78,29 +83,97 @@ def render_realtime_charts(
     window_minutes = window_map.get(win_choice, 5)
 
     chart_tabs = st.tabs([
+        "⚠️ Risk Score & Gas Response Timeline",
         "🌡️ Temperature & Humidity",
-        "⚠️ Risk Score Timeline",
-        "🚶 PIR Motion Activity",
-        "🔬 Gas Sensor (MQ-5)",
+        "🔬 Gas Response Index (GRI)",
     ])
 
     # -----------------------------------------------------------------------
-    # TAB 1: Temperature & Humidity
+    # TAB 1: Risk Score & Gas Response Timeline
     # -----------------------------------------------------------------------
     with chart_tabs[0]:
+        risk_data = state_manager.get_time_window_risk_data(window_minutes)
+        gri_data = state_manager.get_time_window_gri_data(window_minutes)
+
+        if not risk_data and not gri_data:
+            st.info("No risk or gas evaluations recorded in the selected time window.")
+        else:
+            fig_risk = go.Figure()
+            is_sim = any(d.get("source") == "SIMULATION" for d in risk_data)
+            label_suffix = " (Simulated)" if is_sim else " (Live)"
+
+            if risk_data:
+                df_risk = pd.DataFrame(risk_data)
+
+                # Format clean hover classes
+                hover_classes = [
+                    format_evaluation_label(c) for c in df_risk.get("incident_class", ["Normal"] * len(df_risk))
+                ]
+
+                # Instantaneous risk trace
+                fig_risk.add_trace(go.Scatter(
+                    x=df_risk["timestamp"],
+                    y=df_risk["risk_score"],
+                    name=f"Instantaneous Risk{label_suffix}",
+                    line=dict(color="#ef4444", width=2.5),
+                    fill="tozeroy",
+                    fillcolor="rgba(239, 68, 68, 0.08)",
+                    customdata=hover_classes,
+                    hovertemplate="<b>%{x|%H:%M:%S}</b><br>Risk: %{y:.0f}/100<br>Class: %{customdata}<extra></extra>",
+                ))
+
+                # Persistent risk trace (if available and different)
+                if "persist_risk" in df_risk.columns and df_risk["persist_risk"].notnull().any():
+                    fig_risk.add_trace(go.Scatter(
+                        x=df_risk["timestamp"],
+                        y=df_risk["persist_risk"],
+                        name=f"Persistent Risk{label_suffix}",
+                        line=dict(color="#f97316", width=2.0, dash="dash"),
+                        hovertemplate="<b>%{x|%H:%M:%S}</b><br>Persistent Risk: %{y:.0f}/100<extra></extra>",
+                    ))
+
+            # Gas Response Index trace on same timeline
+            if gri_data:
+                df_gri = pd.DataFrame(gri_data)
+                fig_risk.add_trace(go.Scatter(
+                    x=df_gri["timestamp"],
+                    y=df_gri["value"],
+                    name="Gas Response Index",
+                    line=dict(color="#eab308", width=2.0),
+                    hovertemplate="<b>%{x|%H:%M:%S}</b><br>Gas Response: %{y:.0f}/100<extra></extra>",
+                ))
+
+            # Severity threshold reference lines
+            fig_risk.add_hline(y=25, line_dash="dot", line_color="#10b981", annotation_text="Low/Medium (25)", annotation_font_size=9)
+            fig_risk.add_hline(y=50, line_dash="dot", line_color="#f59e0b", annotation_text="Medium/High (50)", annotation_font_size=9)
+            fig_risk.add_hline(y=80, line_dash="dash", line_color="#ef4444", annotation_text="High/Critical (80)", annotation_font_size=9)
+
+            layout_args = dict(**PLOTLY_LAYOUT_DEFAULTS)
+            layout_args.update(
+                title=dict(text="Risk & Gas Response Evolution (0–100 Scale)", font=dict(color="#e2e8f0", size=13)),
+                yaxis=dict(title="Index / Score (0 - 100)", range=[0, 105], showgrid=True, gridcolor="#1f293d"),
+                height=320,
+            )
+            fig_risk.update_layout(**layout_args)
+            st.plotly_chart(fig_risk, use_container_width=True)
+
+    # -----------------------------------------------------------------------
+    # TAB 2: Temperature & Humidity
+    # -----------------------------------------------------------------------
+    with chart_tabs[1]:
         temp_data = state_manager.get_time_window_data("temp_ambient", window_minutes)
         hum_data = state_manager.get_time_window_data("humidity_rel", window_minutes)
 
         if not temp_data and not hum_data:
             st.info("No temperature or humidity samples in the selected time window.")
         else:
-            fig = go.Figure()
+            fig_env = go.Figure()
 
             if temp_data:
                 df_temp = pd.DataFrame(temp_data)
                 is_sim = any(d.get("source") == "SIMULATION" for d in temp_data)
                 label_suffix = " (Simulated)" if is_sim else " (Live)"
-                fig.add_trace(go.Scatter(
+                fig_env.add_trace(go.Scatter(
                     x=df_temp["timestamp"],
                     y=df_temp["value"],
                     name=f"Temperature (°C){label_suffix}",
@@ -112,7 +185,7 @@ def render_realtime_charts(
                 df_hum = pd.DataFrame(hum_data)
                 is_sim = any(d.get("source") == "SIMULATION" for d in hum_data)
                 label_suffix = " (Simulated)" if is_sim else " (Live)"
-                fig.add_trace(go.Scatter(
+                fig_env.add_trace(go.Scatter(
                     x=df_hum["timestamp"],
                     y=df_hum["value"],
                     name=f"Humidity (% RH){label_suffix}",
@@ -125,7 +198,7 @@ def render_realtime_charts(
             if temp_def and temp_def.warning_thresholds:
                 w_high = temp_def.warning_thresholds.get("high")
                 if w_high:
-                    fig.add_hline(
+                    fig_env.add_hline(
                         y=w_high, line_dash="dash", line_color="#f59e0b",
                         annotation_text=f"Temp Warn ({w_high}°C)", annotation_position="top left",
                         annotation_font_color="#f59e0b", annotation_font_size=10,
@@ -133,7 +206,7 @@ def render_realtime_charts(
 
             layout_args = dict(**PLOTLY_LAYOUT_DEFAULTS)
             layout_args.update(
-                title=dict(text="HTS221 Environmental Profiles", font=dict(color="#e2e8f0", size=13)),
+                title=dict(text="Environmental Profiles (Temperature & Humidity)", font=dict(color="#e2e8f0", size=13)),
                 yaxis=dict(
                     title=dict(text="Temperature (°C)", font=dict(color="#f97316")),
                     tickfont=dict(color="#f97316"),
@@ -149,119 +222,40 @@ def render_realtime_charts(
                 ),
                 height=320,
             )
-            fig.update_layout(**layout_args)
-            st.plotly_chart(fig, use_container_width=True)
+            fig_env.update_layout(**layout_args)
+            st.plotly_chart(fig_env, use_container_width=True)
 
     # -----------------------------------------------------------------------
-    # TAB 2: Risk Score Timeline
-    # -----------------------------------------------------------------------
-    with chart_tabs[1]:
-        risk_data = state_manager.get_time_window_risk_data(window_minutes)
-        if not risk_data:
-            st.info("No risk evaluations recorded in the selected time window.")
-        else:
-            df_risk = pd.DataFrame(risk_data)
-            is_sim = any(d.get("source") == "SIMULATION" for d in risk_data)
-            label_suffix = " (Simulated)" if is_sim else " (STM32)"
-
-            fig_risk = go.Figure()
-            fig_risk.add_trace(go.Scatter(
-                x=df_risk["timestamp"],
-                y=df_risk["risk_score"],
-                name=f"Reported Risk Score{label_suffix}",
-                line=dict(color="#ef4444", width=3),
-                fill="tozeroy",
-                fillcolor="rgba(239, 68, 68, 0.1)",
-            ))
-
-            # Severity threshold lines (0-25 Low, 25-50 Med, 50-80 High, 80-100 Critical)
-            fig_risk.add_hline(y=25, line_dash="dot", line_color="#10b981", annotation_text="Low/Medium (25)", annotation_font_size=9)
-            fig_risk.add_hline(y=50, line_dash="dot", line_color="#f59e0b", annotation_text="Medium/High (50)", annotation_font_size=9)
-            fig_risk.add_hline(y=80, line_dash="dash", line_color="#ef4444", annotation_text="High/Critical (80)", annotation_font_size=9)
-
-            layout_args = dict(**PLOTLY_LAYOUT_DEFAULTS)
-            layout_args.update(
-                title=dict(text="Explainable Risk Score Evolution", font=dict(color="#e2e8f0", size=13)),
-                yaxis=dict(title="Risk Score (0 - 100)", range=[0, 105], showgrid=True, gridcolor="#1f293d"),
-                height=320,
-            )
-            fig_risk.update_layout(**layout_args)
-            st.plotly_chart(fig_risk, use_container_width=True)
-
-    # -----------------------------------------------------------------------
-    # TAB 3: PIR Motion Activity
+    # TAB 3: Gas Response Index (GRI) Timeline
     # -----------------------------------------------------------------------
     with chart_tabs[2]:
-        pir_data = state_manager.get_time_window_data("pir_motion", window_minutes)
-        if not pir_data:
-            st.info("No PIR sensor data in the selected time window.")
+        gri_data = state_manager.get_time_window_gri_data(window_minutes)
+
+        if not gri_data:
+            st.info("No gas response samples in the selected time window.")
         else:
-            df_pir = pd.DataFrame(pir_data)
-            fig_pir = go.Figure()
-            fig_pir.add_trace(go.Scatter(
-                x=df_pir["timestamp"],
-                y=df_pir["value"],
-                name="Instantaneous PIR Pin (PD14)",
-                line=dict(color="#a855f7", width=2, shape="hv"),
-                mode="lines+markers",
-            ))
-
-            layout_args = dict(**PLOTLY_LAYOUT_DEFAULTS)
-            layout_args.update(
-                title=dict(text="HC-SR501 PIR Digital State", font=dict(color="#e2e8f0", size=13)),
-                yaxis=dict(title="Digital Logic (0=Clear, 1=Motion)", range=[-0.2, 1.2], tickvals=[0, 1], ticktext=["0 (Clear)", "1 (Detected)"], showgrid=True, gridcolor="#1f293d"),
-                height=280,
-            )
-            fig_pir.update_layout(**layout_args)
-            st.plotly_chart(fig_pir, use_container_width=True)
-
-    # -----------------------------------------------------------------------
-    # TAB 4: MQ-5 Gas Sensor
-    # -----------------------------------------------------------------------
-    with chart_tabs[3]:
-        gas_data = state_manager.get_time_window_data("gas_mq5", window_minutes)
-        gas_def = sensor_registry.get_sensor("gas_mq5")
-
-        if not gas_data:
-            if not gas_def or not gas_def.is_installed:
-                st.markdown(
-                    """
-                    <div style="background: #1e293b; padding: 20px; border-radius: 8px; border: 1px dashed #475569; text-align: center;">
-                        <h4 style="color: #94a3b8; margin: 0 0 6px 0;">MQ-5 Gas Sensor: Not Configured on Live Hardware</h4>
-                        <p style="color: #64748b; font-size: 0.85rem; margin: 0;">
-                            The MQ-5 combustible gas sensor is architected for future hardware integration. No live physical ADC stream is currently connected to the STM32 board.
-                            <br/>To inspect extensible gas telemetry visualization, activate <strong>Scenario 10: Future gas sensor</strong> in the Simulator console.
-                        </p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.info("MQ-5 gas sensor registered but no readings received yet.")
-        else:
-            df_gas = pd.DataFrame(gas_data)
-            fig_gas = go.Figure()
-            fig_gas.add_trace(go.Scatter(
-                x=df_gas["timestamp"],
-                y=df_gas["value"],
-                name="MQ-5 Analog Reading (raw ADC counts)",
+            df_g = pd.DataFrame(gri_data)
+            fig_gri = go.Figure()
+            fig_gri.add_trace(go.Scatter(
+                x=df_g["timestamp"],
+                y=df_g["value"],
+                name="Gas Response Index (GRI)",
                 line=dict(color="#eab308", width=2.5),
+                fill="tozeroy",
+                fillcolor="rgba(234, 179, 8, 0.08)",
+                hovertemplate="<b>%{x|%H:%M:%S}</b><br>GRI: %{y:.1f} / 100<extra></extra>",
             ))
 
-            if gas_def and gas_def.warning_thresholds:
-                w_high = gas_def.warning_thresholds.get("high")
-                if w_high:
-                    fig_gas.add_hline(y=w_high, line_dash="dash", line_color="#f59e0b", annotation_text=f"Warning ({w_high} ADC)")
-            if gas_def and gas_def.critical_thresholds:
-                c_high = gas_def.critical_thresholds.get("high")
-                if c_high:
-                    fig_gas.add_hline(y=c_high, line_dash="dash", line_color="#ef4444", annotation_text=f"Critical ({c_high} ADC)")
+            # Reference bands for Low (0-20), Elevated (20-50), High (50-100)
+            fig_gri.add_hline(y=20, line_dash="dot", line_color="#10b981", annotation_text="Low / Elevated (20)", annotation_font_size=9)
+            fig_gri.add_hline(y=50, line_dash="dash", line_color="#f59e0b", annotation_text="Elevated / High (50)", annotation_font_size=9)
 
             layout_args = dict(**PLOTLY_LAYOUT_DEFAULTS)
             layout_args.update(
-                title=dict(text="MQ-5 Combustible Gas Analog Profile (Uncalibrated ADC)", font=dict(color="#e2e8f0", size=13)),
-                yaxis=dict(title="ADC Counts (0 - 1023)", showgrid=True, gridcolor="#1f293d"),
-                height=280,
+                title=dict(text="Gas Response Index (Human-Readable 0–100 Scale)", font=dict(color="#e2e8f0", size=13)),
+                yaxis=dict(title="Response Index (0 - 100)", range=[0, 105], showgrid=True, gridcolor="#1f293d"),
+                height=300,
             )
-            fig_gas.update_layout(**layout_args)
-            st.plotly_chart(fig_gas, use_container_width=True)
+            fig_gri.update_layout(**layout_args)
+            st.plotly_chart(fig_gri, use_container_width=True)
+            st.caption("ℹ️ Gas Response Index represents normalized response relative to clean-air baseline. It is not an absolute gas concentration (ppm).")

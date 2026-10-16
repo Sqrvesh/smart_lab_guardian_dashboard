@@ -8,7 +8,12 @@ import streamlit as st
 from datetime import datetime
 from typing import Optional
 
-from smart_lab_guardian_dashboard.core.state_manager import IncidentState
+try:
+    from smart_lab_guardian_dashboard.core.state_manager import IncidentState
+    from smart_lab_guardian_dashboard.core.evaluation_labels import format_evaluation_label
+except ImportError:
+    from core.state_manager import IncidentState
+    from core.evaluation_labels import format_evaluation_label
 
 SEVERITY_STYLES = {
     "LOW": {
@@ -107,7 +112,7 @@ def render_status_panel(
           </div>
           <div style="font-size:2.0rem;font-weight:800;color:#f8fafc;
                       letter-spacing:-0.02em;margin-top:2px;">
-            {style['icon']} {incident.incident_class}{conf_html}
+            {style['icon']} {format_evaluation_label(incident.incident_class)}{conf_html}
           </div>
           <div style="font-size:0.86rem;color:#cbd5e1;margin-top:4px;max-width:620px;
                       line-height:1.45;">

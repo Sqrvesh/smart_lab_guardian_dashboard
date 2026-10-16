@@ -25,6 +25,8 @@ try:
     from smart_lab_guardian_dashboard.core.freshness import FreshnessTracker, FreshnessStatus
     from smart_lab_guardian_dashboard.core.event_manager import EventManager, IncidentEvent
     from smart_lab_guardian_dashboard.core.configuration import ConfigManager
+    from smart_lab_guardian_dashboard.core.gas_response import GriTracker, compute_gri, gri_label, gri_color
+    from smart_lab_guardian_dashboard.core.evaluation_labels import format_evaluation_label
 except ImportError:
     from communication.message_models import (
         ProtocolMessage,
@@ -41,6 +43,8 @@ except ImportError:
     from core.freshness import FreshnessTracker, FreshnessStatus
     from core.event_manager import EventManager, IncidentEvent
     from core.configuration import ConfigManager
+    from core.gas_response import GriTracker, compute_gri, gri_label, gri_color
+    from core.evaluation_labels import format_evaluation_label
 
 
 @dataclass
@@ -119,6 +123,10 @@ class StateManager:
         # Latest embedded MLP and explainable risk messages
         self.latest_mlp: Optional[MlpMessage] = None
         self.latest_risk: Optional[RiskMessage] = None
+
+        # Rolling Gas Response Index tracker & history
+        self.gri_tracker = GriTracker()
+        self.gri_history: deque = deque(maxlen=self.max_history_points)
 
         # Bounded time-series buffers for Plotly charts: List of (timestamp, value, source)
         self.sensor_history: Dict[str, deque] = {
@@ -221,9 +229,11 @@ class StateManager:
                     and isinstance(state.current_value, (int, float))
                 ):
                     delta = val - state.current_value
-                    if delta > 0.05:
+                    # For gas_mq5 ADC use noise margin of 8 counts; for temp/hum use 0.05
+                    threshold = 8.0 if s_id == "gas_mq5" else 0.05
+                    if delta > threshold:
                         trend = "RISING"
-                    elif delta < -0.05:
+                    elif delta < -threshold:
                         trend = "FALLING"
 
                 state.previous_value = state.current_value
@@ -237,6 +247,17 @@ class StateManager:
                 self.sensor_history[s_id].append({
                     "timestamp": now,
                     "value": val,
+                    "source": sample.source,
+                })
+
+        # Update Gas Response Index (GRI) baseline & history
+        if sample.mq5_adc is not None:
+            self.gri_tracker.update(sample.mq5_adc)
+            gri_val, _ = self.gri_tracker.compute(sample.mq5_adc)
+            if gri_val is not None:
+                self.gri_history.append({
+                    "timestamp": now,
+                    "value": gri_val,
                     "source": sample.source,
                 })
 
@@ -397,10 +418,26 @@ class StateManager:
         cutoff = datetime.now() - timedelta(minutes=window_minutes)
         return [pt for pt in history if pt["timestamp"] >= cutoff]
 
+    def get_time_window_gri_data(
+        self,
+        window_minutes: Optional[int] = 5,
+    ) -> List[Dict[str, Any]]:
+        """
+        Filters Gas Response Index (GRI) history buffer to the selected time window.
+        """
+        history = list(self.gri_history)
+        if not history or window_minutes is None:
+            return history
+
+        cutoff = datetime.now() - timedelta(minutes=window_minutes)
+        return [pt for pt in history if pt["timestamp"] >= cutoff]
+
     def clear_all_history(self) -> None:
         """Clears chart histories and event log."""
         for q in self.sensor_history.values():
             q.clear()
         self.risk_history.clear()
+        self.gri_history.clear()
+        self.gri_tracker.reset()
         self.raw_message_log.clear()
         self.event_manager.clear_events()
