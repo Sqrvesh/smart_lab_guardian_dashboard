@@ -1,0 +1,19 @@
+{
+  "system": {
+    "freshness_timeout_seconds": 4.0,
+    "hardware_stale_warning_seconds": 6.0,
+    "max_history_points": 3000,
+    "max_event_history": 1000,
+    "default_baudrate": 115200
+  },
+  "risk_thresholds": {
+    "low_max": 24.9,
+    "medium_max": 49.9,
+    "high_max": 79.9,
+    "critical_min": 80.0
+  },
+  "event_suppression": {
+    "min_risk_delta_to_trigger": 8.0,
+    "min_repeat_interval_seconds": 30.0
+  }
+}

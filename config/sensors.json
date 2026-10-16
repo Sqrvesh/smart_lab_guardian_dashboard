@@ -1,0 +1,88 @@
+{
+  "sensors": [
+    {
+      "sensor_id": "temp_ambient",
+      "display_name": "Ambient Temperature",
+      "sensor_type": "temperature",
+      "unit": "°C",
+      "data_type": "float",
+      "description": "HTS221 capacitive digital relative temperature sensor on B-L475E-IOT01A1",
+      "enabled": true,
+      "expected_update_interval": 1.0,
+      "warning_thresholds": {
+        "high": 30.0,
+        "low": 18.0
+      },
+      "critical_thresholds": {
+        "high": 35.0,
+        "low": 15.0
+      },
+      "chart_enabled": true,
+      "source_field": "temperature",
+      "calibration_status": "CALIBRATED",
+      "is_installed": true
+    },
+    {
+      "sensor_id": "humidity_rel",
+      "display_name": "Relative Humidity",
+      "sensor_type": "humidity",
+      "unit": "% RH",
+      "data_type": "float",
+      "description": "HTS221 capacitive digital relative humidity sensor on B-L475E-IOT01A1",
+      "enabled": true,
+      "expected_update_interval": 1.0,
+      "warning_thresholds": {
+        "high": 70.0,
+        "low": 30.0
+      },
+      "critical_thresholds": {
+        "high": 80.0,
+        "low": 20.0
+      },
+      "chart_enabled": true,
+      "source_field": "humidity",
+      "calibration_status": "CALIBRATED",
+      "is_installed": true
+    },
+    {
+      "sensor_id": "gas_mq5",
+      "display_name": "MQ-5 Combustible Gas",
+      "sensor_type": "gas",
+      "unit": "ADC",
+      "data_type": "analog",
+      "description": "MQ-5 combustible gas sensor raw 12-bit ADC reading",
+      "enabled": true,
+      "expected_update_interval": 1.0,
+      "warning_thresholds": {
+        "high": 400.0
+      },
+      "critical_thresholds": {
+        "high": 700.0
+      },
+      "chart_enabled": true,
+      "source_field": "mq5_adc",
+      "calibration_status": "CALIBRATED",
+      "is_installed": true
+    },
+    {
+      "sensor_id": "gas_mq5_mv",
+      "display_name": "MQ-5 Gas Voltage",
+      "sensor_type": "gas",
+      "unit": "mV",
+      "data_type": "analog",
+      "description": "MQ-5 combustible gas sensor analog output in millivolts",
+      "enabled": true,
+      "expected_update_interval": 1.0,
+      "warning_thresholds": {
+        "high": 1500.0
+      },
+      "critical_thresholds": {
+        "high": 2500.0
+      },
+      "chart_enabled": false,
+      "source_field": "mq5_mv",
+      "calibration_status": "CALIBRATED",
+      "is_installed": true
+    }
+  ]
+}
