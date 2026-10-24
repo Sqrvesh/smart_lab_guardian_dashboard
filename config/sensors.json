@@ -2,7 +2,7 @@
   "sensors": [
     {
       "sensor_id": "temp_ambient",
-      "display_name": "Ambient Temperature",
+      "display_name": "Temperature",
       "sensor_type": "temperature",
       "unit": "°C",
       "data_type": "float",

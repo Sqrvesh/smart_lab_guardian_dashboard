@@ -82,6 +82,26 @@ def _make_tick(
     delay: float = 2.0,
 ) -> ScenarioTick:
     """Convenience builder for a complete three-message simulation tick."""
+    # Build explainable risk attribution breakdown for the scenario tick
+    gas_contrib = max(3.0, min(100.0, (mq5_adc - 190.0) / (700.0 - 190.0) * 100.0))
+    thermal_contrib = 5.0 if temp <= 25.5 else min(100.0, 5.0 + (temp - 25.5) / (37.0 - 25.5) * 95.0)
+    hum_contrib = 4.0 if hum <= 55.0 else min(100.0, 4.0 + (hum - 55.0) / (85.0 - 55.0) * 96.0)
+    if mq5_abrupt:
+        dyn_contrib = min(100.0, 65.0 + abs(mq5_change) * 35.0)
+    elif mq5_var > 0.15:
+        dyn_contrib = min(85.0, mq5_var * 200.0)
+    else:
+        dyn_contrib = min(100.0, max(3.0, abs(mq5_change) * 75.0))
+    ml_contrib = min(100.0, max(4.0, (risk * 0.85) + (float(mlp_conf) * 0.15)))
+
+    contributions = {
+        "GAS_RESPONSE": round(gas_contrib, 1),
+        "GAS_DYNAMICS": round(dyn_contrib, 1),
+        "THERMAL": round(thermal_contrib, 1),
+        "HUMIDITY": round(hum_contrib, 1),
+        "ML_MODEL": round(ml_contrib, 1),
+    }
+
     return ScenarioTick(
         step_index=i + 1,
         delay_seconds=delay,
@@ -124,6 +144,7 @@ def _make_tick(
                 source="SIMULATION",
                 is_valid=True,
                 scenario_name=scenario_name,
+                risk_contributions=contributions,
             ),
         ],
         status_summary=(

@@ -25,7 +25,13 @@ try:
     from smart_lab_guardian_dashboard.core.freshness import FreshnessTracker, FreshnessStatus
     from smart_lab_guardian_dashboard.core.event_manager import EventManager, IncidentEvent
     from smart_lab_guardian_dashboard.core.configuration import ConfigManager
-    from smart_lab_guardian_dashboard.core.gas_response import GriTracker, compute_gri, gri_label, gri_color
+    from smart_lab_guardian_dashboard.core.gas_response import (
+        GriTracker,
+        compute_gri,
+        gri_label,
+        gri_color,
+        GRI_BASELINE_ADC,
+    )
     from smart_lab_guardian_dashboard.core.evaluation_labels import format_evaluation_label
 except ImportError:
     from communication.message_models import (
@@ -43,7 +49,13 @@ except ImportError:
     from core.freshness import FreshnessTracker, FreshnessStatus
     from core.event_manager import EventManager, IncidentEvent
     from core.configuration import ConfigManager
-    from core.gas_response import GriTracker, compute_gri, gri_label, gri_color
+    from core.gas_response import (
+        GriTracker,
+        compute_gri,
+        gri_label,
+        gri_color,
+        GRI_BASELINE_ADC,
+    )
     from core.evaluation_labels import format_evaluation_label
 
 
@@ -156,12 +168,21 @@ class StateManager:
 
     def set_mode(self, mode: str) -> None:
         """Switches between HARDWARE and SIMULATION mode."""
-        if mode in (DataSource.HARDWARE.value, DataSource.SIMULATION.value):
-            self.active_mode = mode
-            if mode == DataSource.SIMULATION.value:
+        norm_mode = (
+            DataSource.HARDWARE.value
+            if mode in ("LIVE HARDWARE", "HARDWARE", DataSource.HARDWARE.value)
+            else DataSource.SIMULATION.value
+        )
+        if norm_mode != self.active_mode or (norm_mode == DataSource.SIMULATION.value and not self.gri_tracker.is_calibrated):
+            self.active_mode = norm_mode
+            if norm_mode == DataSource.SIMULATION.value:
                 self.incident_state.model_source = "SIMULATION ENGINE"
+                self.gri_tracker.reset()
+                self.gri_tracker.set_configured_baseline(GRI_BASELINE_ADC)
             else:
                 self.incident_state.model_source = "STM32 EMBEDDED MLP"
+                self.gri_tracker.reset()
+                self.gri_tracker.set_configured_baseline(None)
 
     def process_message(self, msg: ProtocolMessage) -> None:
         """
@@ -208,6 +229,10 @@ class StateManager:
 
     def _handle_sample_message(self, sample: SampleMessage) -> None:
         """Processes sensor sample updates."""
+        # Segregate data sources: prevent stale simulation values from overwriting live hardware readings
+        if sample.source and sample.source != self.active_mode:
+            return
+
         now = sample.timestamp
 
         for s_def in self.sensor_registry.get_active_sensors():
@@ -302,11 +327,20 @@ class StateManager:
             "source": risk.source,
         })
 
+        # Update explainable risk contributions
+        if getattr(risk, "risk_contributions", None):
+            self.incident_state.risk_contributions = risk.risk_contributions.copy()
+        else:
+            self.incident_state.risk_contributions = self._compute_risk_contributions(risk)
+
         # Snapshot current sensor readings for incident event record (mq5_adc instead of pir)
+        gri_val = self.gri_history[-1]["value"] if self.gri_history else None
         snapshot = {
             "temperature": self.sensor_states.get("temp_ambient", LiveSensorState(sensor_id="temp_ambient")).current_value,
             "humidity": self.sensor_states.get("humidity_rel", LiveSensorState(sensor_id="humidity_rel")).current_value,
             "mq5_adc": self.sensor_states.get("gas_mq5", LiveSensorState(sensor_id="gas_mq5")).current_value,
+            "gri": gri_val,
+            "baseline": self.gri_tracker.baseline if self.gri_tracker.is_calibrated else None,
         }
 
         # Check for event transition
@@ -317,6 +351,7 @@ class StateManager:
             persist_risk=risk.persist_risk,
             severity=risk.severity,
             why=risk.why,
+            risk_contributions=self.incident_state.risk_contributions.copy(),
             source=risk.source,
             scenario_name=risk.scenario_name or self.incident_state.scenario_name,
         )
@@ -324,6 +359,38 @@ class StateManager:
             incident=synth_incident,
             sensor_snapshot=snapshot,
         )
+
+    def _compute_risk_contributions(self, risk: RiskMessage) -> Dict[str, float]:
+        """Dynamically computes explainable risk contributions from sensor states and metrics."""
+        temp_val = self.sensor_states.get("temp_ambient", LiveSensorState(sensor_id="temp_ambient")).current_value or 25.0
+        hum_val = self.sensor_states.get("humidity_rel", LiveSensorState(sensor_id="humidity_rel")).current_value or 50.0
+        mq5_val = self.sensor_states.get("gas_mq5", LiveSensorState(sensor_id="gas_mq5")).current_value or 200.0
+
+        gas_contrib = max(3.0, min(100.0, (float(mq5_val) - 190.0) / (700.0 - 190.0) * 100.0))
+        thermal_contrib = 5.0 if float(temp_val) <= 25.5 else min(100.0, 5.0 + (float(temp_val) - 25.5) / (37.0 - 25.5) * 95.0)
+        hum_contrib = 4.0 if float(hum_val) <= 55.0 else min(100.0, 4.0 + (float(hum_val) - 55.0) / (85.0 - 55.0) * 96.0)
+
+        mq5_change = risk.mq5_change or 0.0
+        mq5_abrupt = risk.mq5_abrupt or 0
+        mq5_var = risk.mq5_variability or 0.0
+
+        if mq5_abrupt:
+            dyn_contrib = min(100.0, 65.0 + abs(mq5_change) * 35.0)
+        elif mq5_var > 0.15:
+            dyn_contrib = min(85.0, mq5_var * 200.0)
+        else:
+            dyn_contrib = min(100.0, max(3.0, abs(mq5_change) * 75.0))
+
+        conf = self.incident_state.mlp_confidence or 85.0
+        ml_contrib = min(100.0, max(4.0, (risk.risk_score * 0.85) + (conf * 0.15)))
+
+        return {
+            "GAS_RESPONSE": round(gas_contrib, 1),
+            "GAS_DYNAMICS": round(dyn_contrib, 1),
+            "THERMAL": round(thermal_contrib, 1),
+            "HUMIDITY": round(hum_contrib, 1),
+            "ML_MODEL": round(ml_contrib, 1),
+        }
 
     def _handle_incident_message(self, inc: IncidentMessage) -> None:
         """Processes risk evaluation and incident classification (backward compat)."""
@@ -350,10 +417,13 @@ class StateManager:
         })
 
         # Snapshot current sensor readings for incident event record
+        gri_val = self.gri_history[-1]["value"] if self.gri_history else None
         snapshot = {
             "temperature": self.sensor_states.get("temp_ambient", LiveSensorState(sensor_id="temp_ambient")).current_value,
             "humidity": self.sensor_states.get("humidity_rel", LiveSensorState(sensor_id="humidity_rel")).current_value,
             "mq5_adc": self.sensor_states.get("gas_mq5", LiveSensorState(sensor_id="gas_mq5")).current_value,
+            "gri": gri_val,
+            "baseline": self.gri_tracker.baseline if self.gri_tracker.is_calibrated else None,
         }
 
         # Check for event transition

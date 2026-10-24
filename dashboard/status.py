@@ -74,27 +74,23 @@ def render_status_panel(
         else "Awaiting first reading"
     )
 
-    # Persistent risk display
-    persist_risk = getattr(incident, "persist_risk", None)
-    persist_html = ""
-    if persist_risk is not None and persist_risk != incident.risk_score:
-        persist_html = (
-            f'<div style="font-size:0.72rem;color:#64748b;margin-top:2px;">'
-            f'Persistent risk: <strong style="color:{style["color"]}">'
-            f'{persist_risk:.0f}</strong>/100</div>'
-        )
-
-    # Confidence display
+    # Clean confidence display under Risk Score (replaces persistent risk)
     mlp_conf = getattr(incident, "mlp_confidence", None)
     conf_html = ""
     if mlp_conf is not None:
-        conf_html = f'<span style="color:#64748b;font-size:0.78rem;"> · {mlp_conf:.0f}% conf.</span>'
+        conf_html = (
+            f'<div style="font-size:0.75rem;color:#94a3b8;margin-top:4px;font-weight:500;white-space:nowrap;">'
+            f'Confidence: <strong style="color:#e2e8f0;">{mlp_conf:.0f}%</strong></div>'
+        )
 
+    # Format scenario name without redundant "Scenario X:" prefix and dimmed color
     scenario_html = ""
     if incident.scenario_name:
+        import re
+        clean_scen = re.sub(r"^Scenario\s*\d+\s*:\s*", "", incident.scenario_name).strip()
         scenario_html = (
             f' &bull; <strong>Scenario:</strong> '
-            f'<span style="color:#f59e0b;">{incident.scenario_name}</span>'
+            f'<span style="color:#94a3b8;font-weight:500;">{clean_scen}</span>'
         )
 
     st.html(f"""
@@ -103,16 +99,16 @@ def render_status_panel(
                 padding:18px 24px;margin-bottom:20px;
                 box-shadow:0 4px 16px rgba(0,0,0,0.3);">
 
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;
-                  flex-wrap:wrap;gap:12px;">
-        <div>
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  flex-wrap:wrap;gap:16px;">
+        <div style="flex:1;min-width:280px;">
           <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
                       letter-spacing:0.08em;color:#94a3b8;">
             Laboratory Status &amp; Incident Assessment
           </div>
           <div style="font-size:2.0rem;font-weight:800;color:#f8fafc;
                       letter-spacing:-0.02em;margin-top:2px;">
-            {style['icon']} {format_evaluation_label(incident.incident_class)}{conf_html}
+            {style['icon']} {format_evaluation_label(incident.incident_class)}
           </div>
           <div style="font-size:0.86rem;color:#cbd5e1;margin-top:4px;max-width:620px;
                       line-height:1.45;">
@@ -120,19 +116,17 @@ def render_status_panel(
           </div>
         </div>
 
-        <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
-          <div style="text-align:right;">
-            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;
-                        color:#94a3b8;">Severity</div>
-            <div style="margin-top:4px;font-size:0.9rem;font-weight:700;
-                        padding:4px 14px;border-radius:6px;letter-spacing:0.05em;
+        <div style="display:flex;gap:20px;align-items:center;flex-shrink:0;">
+          <div style="display:flex;align-items:center;justify-content:center;width:135px;flex-shrink:0;">
+            <div style="font-size:0.85rem;font-weight:700;
+                        padding:6px 0;width:130px;text-align:center;border-radius:6px;letter-spacing:0.05em;
                         background:{style['bg']};color:{style['color']};
-                        border:1.5px solid {style['color']};">
+                        border:1.5px solid {style['color']};white-space:nowrap;box-sizing:border-box;">
               {style['label']}
             </div>
           </div>
 
-          <div style="text-align:right;min-width:110px;">
+          <div style="text-align:right;min-width:115px;display:flex;flex-direction:column;align-items:flex-end;">
             <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;
                         color:#94a3b8;">Risk Score</div>
             <div style="font-size:2.4rem;font-weight:800;color:{style['color']};
@@ -140,7 +134,7 @@ def render_status_panel(
               {incident.risk_score:.0f}<span style="font-size:1.0rem;color:#64748b;
               font-weight:500;">/100</span>
             </div>
-            {persist_html}
+            {conf_html}
           </div>
         </div>
       </div>

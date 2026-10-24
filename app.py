@@ -90,6 +90,9 @@ if "sim_speed" not in st.session_state:
 state_mgr: StateManager = st.session_state.state_manager
 serial_mgr: SerialManager = st.session_state.serial_manager
 scenario_eng: ScenarioEngine = st.session_state.scenario_engine
+# Ensure state manager mode stays synchronized
+if state_mgr.active_mode != ('HARDWARE' if st.session_state.active_mode == 'LIVE HARDWARE' else 'SIMULATION'):
+    state_mgr.set_mode(st.session_state.active_mode)
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +195,21 @@ with st.sidebar:
         st.info(
             "💡 **Note:** Ensure **PuTTY**, TeraTerm, or Arduino Serial Monitor are **closed** before connecting, or Windows will block access to the COM port."
         )
+
+        # Baseline calibration control
+        st.markdown("##### 🔬 Gas Baseline Calibration")
+        if state_mgr.gri_tracker.is_calibrated:
+            b_val = state_mgr.gri_tracker.baseline
+            b_str = f"{b_val:.0f} ADC" if b_val is not None else "Calibrated"
+            st.caption(f"Status: **Calibrated** (Baseline: `{b_str}`)")
+        else:
+            cnt = state_mgr.gri_tracker.samples_collected
+            req = state_mgr.gri_tracker.min_stable_samples
+            st.caption(f"Status: **Calibrating** ({cnt}/{req} samples)")
+        if st.button("🔄 Re-calibrate Clean-Air Baseline", use_container_width=True, help="Resets baseline and samples fresh clean-air ambient readings"):
+            state_mgr.gri_tracker.reset()
+            st.toast("Gas baseline reset — calibrating new clean-air baseline", icon="🔬")
+            st.rerun()
 
     # -----------------------------------------------------------------------
     # SIMULATION CONTROLS
@@ -330,6 +348,7 @@ render_all_sensor_cards(
     sensor_registry=state_mgr.sensor_registry,
     sensor_states=state_mgr.sensor_states,
     freshness_tracker=state_mgr.freshness_tracker,
+    gri_tracker=state_mgr.gri_tracker,
 )
 
 # 4. Interactive Plotly Real-Time Charts
@@ -338,7 +357,7 @@ render_realtime_charts(
     sensor_registry=state_mgr.sensor_registry,
 )
 
-# 5. TinyML Embedded Inference Panel
+# 5. Firmware Telemetry
 render_tinyml_panel(
     incident=state_mgr.incident_state,
     latest_features=state_mgr.latest_features,

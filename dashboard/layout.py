@@ -21,9 +21,15 @@ INDUSTRIAL_DARK_CSS = """
     background: linear-gradient(145deg, #131b2e 0%, #172036 100%);
     border: 1px solid #23314f;
     border-radius: 10px;
-    padding: 16px 20px;
+    padding: 14px 18px;
     margin-bottom: 16px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    /* Uniform fixed height + flex column so all three sensor cards are identical and aligned */
+    height: 154px;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .slg-card-header {
@@ -32,10 +38,11 @@ INDUSTRIAL_DARK_CSS = """
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: #94a3b8;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .slg-card-value {
@@ -43,6 +50,10 @@ INDUSTRIAL_DARK_CSS = """
     font-weight: 700;
     color: #f8fafc;
     letter-spacing: -0.02em;
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .slg-card-unit {
@@ -55,9 +66,10 @@ INDUSTRIAL_DARK_CSS = """
 .slg-card-footer {
     font-size: 0.75rem;
     color: #64748b;
-    margin-top: 8px;
+    margin-top: auto;
     display: flex;
     justify-content: space-between;
+    flex-shrink: 0;
 }
 
 /* Status hero card */
@@ -197,12 +209,9 @@ def render_header(
                 <h2 style="margin: 0; padding: 0; font-weight: 800; color: #f8fafc; letter-spacing: -0.02em;">
                     🛡️ SMART LAB GUARDIAN
                 </h2>
-                <span style="font-size: 0.8rem; font-weight: 700; color: #38bdf8; background: #0c4a6e; padding: 2px 8px; border-radius: 4px; border: 1px solid #0284c7;">
-                    STM32L475VG TinyML
-                </span>
             </div>
-            <div style="font-size: 0.82rem; color: #94a3b8; margin-top: 2px;">
-                Context-Aware Multi-Sensor Incident Detection & Explainable Risk Prioritization System
+            <div style="font-size: 0.82rem; color: #94a3b8; margin-top: 4px; margin-bottom: 6px;">
+                Context-Aware Multi-Sensor Incident Detection &amp; Explainable Risk Prioritization System
             </div>
             """,
             unsafe_allow_html=True,
@@ -238,28 +247,11 @@ def render_header(
             unsafe_allow_html=True,
         )
 
-    # Sub-bar with port details, counters, and message rate
-    age_str = "-"
-    if last_msg_time:
-        age_sec = (datetime.now() - last_msg_time).total_seconds()
-        age_str = f"{age_sec:.1f}s ago"
+    # Padding after the title, description, and header controls
+    st.markdown('<div style="margin-bottom: 22px;"></div>', unsafe_allow_html=True)
 
-    port_display = f"{selected_port} @ {baudrate}" if selected_port else "None"
 
-    st.markdown(
-        f"""
-        <div style="display: flex; gap: 14px; margin-top: 10px; margin-bottom: 12px; flex-wrap: wrap; background: #0f172a; padding: 8px 14px; border-radius: 8px; border: 1px solid #1e293b; font-size: 0.78rem;">
-            <div><strong style="color: #94a3b8;">Port:</strong> <span style="font-family: monospace; color: #e2e8f0;">{port_display}</span></div>
-            <div><strong style="color: #94a3b8;">Messages:</strong> <span style="color: #10b981; font-weight: 600;">{messages_count}</span></div>
-            <div><strong style="color: #94a3b8;">Malformed:</strong> <span style="color: {'#ef4444' if malformed_count > 0 else '#64748b'}; font-weight: 600;">{malformed_count}</span></div>
-            <div><strong style="color: #94a3b8;">Serial Errors:</strong> <span style="color: {'#ef4444' if connection_errors > 0 else '#64748b'}; font-weight: 600;">{connection_errors}</span></div>
-            <div><strong style="color: #94a3b8;">Last Message:</strong> <span style="font-family: monospace; color: #38bdf8;">{age_str}</span></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Stale hardware data alert
+    # Stale hardware data alert (only in live mode)
     if is_stale and active_mode == "LIVE HARDWARE":
         st.markdown(
             """
@@ -270,14 +262,3 @@ def render_header(
             unsafe_allow_html=True,
         )
 
-    # Prominent simulation banner
-    if active_mode == "SIMULATION":
-        st.markdown(
-            """
-            <div class="slg-sim-banner">
-                <span>🧪 <strong>SIMULATION MODE ACTIVE</strong> — Telemetry and incident classifications are synthetic test patterns. No real physical hardware or live lab environment is being monitored.</span>
-                <span class="slg-badge" style="background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #fef3c7;">NON-HARDWARE TEST</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )

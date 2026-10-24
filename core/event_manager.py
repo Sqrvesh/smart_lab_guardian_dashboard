@@ -41,10 +41,14 @@ class IncidentEvent:
         """Converts to a dictionary suitable for tabular display and export."""
         snap = self.sensor_snapshot or {}
         mq5_val = snap.get("mq5_adc")
+        gri_val = snap.get("gri")
 
         gas_resp_label = "-"
-        if mq5_val is not None and isinstance(mq5_val, (int, float)):
-            gri = compute_gri(mq5_val)
+        if gri_val is not None and isinstance(gri_val, (int, float)):
+            gas_resp_label = gri_label(gri_val)
+        elif mq5_val is not None and isinstance(mq5_val, (int, float)):
+            base = snap.get("baseline")
+            gri = compute_gri(mq5_val, baseline_adc=base)
             gas_resp_label = gri_label(gri)
 
         return {

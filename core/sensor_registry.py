@@ -180,7 +180,7 @@ class SensorRegistry:
             # Fallback code-defined defaults (PIR removed, MQ-5 ADC and mV enabled)
             self.register_sensor(SensorDefinition(
                 sensor_id="temp_ambient",
-                display_name="Ambient Temperature",
+                display_name="Temperature",
                 sensor_type="temperature",
                 unit="°C",
                 data_type="float",

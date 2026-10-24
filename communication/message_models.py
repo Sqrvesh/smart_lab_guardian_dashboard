@@ -96,6 +96,7 @@ class RiskMessage:
     scenario_name: Optional[str] = None
     is_valid: bool = True
     error_reason: Optional[str] = None
+    risk_contributions: Dict[str, float] = field(default_factory=dict)
 
     @property
     def message_type(self) -> MessageType:

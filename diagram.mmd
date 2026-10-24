@@ -1,0 +1,57 @@
+flowchart TB
+    subgraph INPUT["1. SENSOR INPUT LAYER"]
+        direction LR
+        MQ["MQ-5 Gas Sensor"]
+        HTS["HTS221 Sensor<br/>Temperature & Humidity"]
+    end
+
+    subgraph EMBEDDED["2. EMBEDDED PROCESSING — STM32L475VG"]
+        direction TB
+        ACQ["Sensor Acquisition<br/>ADC + I²C"]
+        WIN["Rolling Sample Window<br/>10 Samples"]
+        FEAT["Feature Extraction<br/>9 Input Features"]
+        MLP["TinyML MLP Classifier<br/>9 → 16 → 8 → 4"]
+        RISK["Context-Aware Risk Engine<br/>MLP + Sensor Trends<br/>Persistence & Recovery"]
+        OUT["Risk Score · Severity<br/>Explanation & Diagnostics"]
+
+        ACQ --> WIN --> FEAT --> MLP --> RISK --> OUT
+    end
+
+    subgraph COMM["3. COMMUNICATION LAYER"]
+        UART["UART1 · USB via ST-LINK<br/>115200 Baud"]
+    end
+
+    subgraph PC["4. PC DASHBOARD"]
+        direction TB
+        PARSE["UART Parser<br/>Sample, MLP & Risk Records"]
+        VIEW["Live Monitoring Dashboard<br/>Temperature · Humidity<br/>Gas Response · Risk"]
+        HIST["Trend Charts & Event History"]
+        SIM["Scenario Simulation<br/>Normal · Gas Changes · Recovery"]
+
+        PARSE --> VIEW
+        VIEW --> HIST
+        SIM --> VIEW
+    end
+
+    MQ --> ACQ
+    HTS --> ACQ
+    OUT --> UART --> PARSE
+
+    classDef sensor fill:#E8F2FF,stroke:#3973AC,color:#163A5C,stroke-width:1.5px
+    classDef process fill:#F2F4F7,stroke:#64748B,color:#1F2937,stroke-width:1.2px
+    classDef ml fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95,stroke-width:1.5px
+    classDef risk fill:#FFF0E5,stroke:#D97706,color:#7C2D12,stroke-width:1.5px
+    classDef comm fill:#E0F7F4,stroke:#0F766E,color:#134E4A,stroke-width:1.5px
+    classDef dashboard fill:#E8F7EC,stroke:#27834A,color:#14532D,stroke-width:1.5px
+
+    class MQ,HTS sensor
+    class ACQ,WIN,FEAT process
+    class MLP ml
+    class RISK,OUT risk
+    class UART,PARSE comm
+    class VIEW,HIST,SIM dashboard
+
+    style INPUT fill:#F8FAFC,stroke:#CBD5E1
+    style EMBEDDED fill:#F8FAFC,stroke:#94A3B8
+    style COMM fill:#F8FAFC,stroke:#CBD5E1
+    style PC fill:#F8FAFC,stroke:#94A3B8

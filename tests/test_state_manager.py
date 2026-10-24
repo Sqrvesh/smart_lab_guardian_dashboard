@@ -194,7 +194,7 @@ def test_event_manager_filtering_and_export(state_mgr):
     # CSV Export
     csv_str = state_mgr.event_manager.export_csv()
     assert "Critical temperature runaway" in csv_str
-    assert "OVERHEATING" in csv_str
+    assert "Overheating" in csv_str  # clean label (was OVERHEATING before label mapping)
     assert "Event ID" in csv_str
     assert "MQ5 ADC" in csv_str
     assert "Gas Response" in csv_str
